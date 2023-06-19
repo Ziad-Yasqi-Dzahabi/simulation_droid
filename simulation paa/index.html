@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Droid Simulation</title>
+    <style>
+      canvas {
+        border: 1px solid black;
+      }
+
+      .notification {
+        display: none;
+        font-size: 24px;
+        color: red;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas" width="640" height="640"></canvas>
+
+    <div>
+      <input type="radio" name="view" value="red" id="redView" />
+      <label for="redView">Red Droid View</label>
+      <input type="radio" name="view" value="green" id="greenView" />
+      <label for="greenView">Green Droid View</label>
+    </div>
+    <div>
+      <button id="startBtn">Start</button>
+      <button id="stopBtn">Stop</button>
+      <button id="randomizeBtn">Randomize</button>
+      <button id="addRedDroidBtn">Add Red Droid</button>
+    </div>
+
+    <!-- Notification element -->
+    <div class="notification" id="notification">Game Over</div>
+
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+
+      const MAP_SIZE = 32;
+      const TILE_SIZE = canvas.width / MAP_SIZE;
+      const WALL_COLOR = "gray";
+      const TILE_COLOR = "white";
+      const RED_DROID_COLOR = "red";
+      const GREEN_DROID_COLOR = "green";
+      const DROID_RADIUS = TILE_SIZE / 3;
+      const SIGHT_RANGE = 4;
+      const UPDATE_INTERVAL = 100;
+
+      let map = [];
+      let redDroids = [];
+      let greenDroid = null;
+      let updateInterval;
+      let selectedView = "red"; // Variable to store the selected view
+
+      // Generate the map with walls and empty tiles
+      function generateMap() {
+        map = [];
+        for (let row = 0; row < MAP_SIZE; row++) {
+          map[row] = [];
+          for (let col = 0; col < MAP_SIZE; col++) {
+            if (
+              row === 0 ||
+              row === MAP_SIZE - 1 ||
+              col === 0 ||
+              col === MAP_SIZE - 1
+            ) {
+              // Walls on the border
+              map[row][col] = 1;
+            } else {
+              // Randomize the walls in the middle
+              map[row][col] = Math.random() > 0.9 ? 1 : 0;
+            }
+          }
+        }
+      }
+
+      // Create a single red droid at a random position
+      function createRedDroid() {
+        let [x, y] = getRandomCoordinates();
+        while (isWall(x, y) || isRedDroid(x, y) || isGreenDroid(x, y)) {
+          [x, y] = getRandomCoordinates();
+        }
+
+        const redDroid = {
+          x,
+          y,
+          isVisible: true,
+          pursue: selectedView === "red", // Added pursue property, based on selected view
+          move() {
+            if (this.pursue) {
+              const greenDirection = getGreenDroidDirection.call(this);
+              const directions = getValidDirections(
+                this.x,
+                this.y,
+                false,
+                greenDirection
+              );
+              // Choose a random valid direction that doesn't collide with a wall
+              const nonWallDirections = directions.filter(
+                (dir) => !isWall(dir.x, dir.y)
+              );
+              const randomDirection =
+                nonWallDirections[
+                  Math.floor(Math.random() * nonWallDirections.length)
+                ];
+              if (randomDirection) {
+                this.x = randomDirection.x;
+                this.y = randomDirection.y;
+              }
+            } else {
+              const directions = getValidDirections(this.x, this.y, false);
+              // Choose a random valid direction that doesn't collide with a wall
+              const nonWallDirections = directions.filter(
+                (dir) => !isWall(dir.x, dir.y)
+              );
+              const randomDirection =
+                nonWallDirections[
+                  Math.floor(Math.random() * nonWallDirections.length)
+                ];
+              if (randomDirection) {
+                this.x = randomDirection.x;
+                this.y = randomDirection.y;
+              }
+            }
+          },
+        };
+
+        redDroids.push(redDroid);
+      }
+
+      // Create the green droid at a random position
+      function createGreenDroid() {
+        let [x, y] = getRandomCoordinates();
+        while (isWall(x, y) || isRedDroid(x, y) || isGreenDroid(x, y)) {
+          [x, y] = getRandomCoordinates();
+        }
+
+        greenDroid = {
+          x,
+          y,
+          move() {
+            const redDroidDirections = redDroids.map((redDroid) =>
+              getGreenDroidDirection.call(redDroid)
+            );
+            const directions = getValidDirections(this.x, this.y, false);
+            // Filter out directions that would lead to collisions with red droids
+            const nonRedDroidDirections = directions.filter(
+              (dir) =>
+                !redDroidDirections.some(
+                  (redDir) => redDir.x === dir.x && redDir.y === dir.y
+                )
+            );
+            // Choose a random valid direction
+            const randomDirection =
+              nonRedDroidDirections[
+                Math.floor(Math.random() * nonRedDroidDirections.length)
+              ];
+            if (randomDirection) {
+              this.x = randomDirection.x;
+              this.y = randomDirection.y;
+            }
+          },
+        };
+      }
+
+      // Initialize the simulation
+      function init() {
+        generateMap();
+        createRedDroid();
+        createGreenDroid();
+        updateCanvas();
+      }
+
+      // Check if the given coordinates are within the map bounds
+      function isWithinBounds(x, y) {
+        return x >= 0 && x < MAP_SIZE && y >= 0 && y < MAP_SIZE;
+      }
+
+      // Check if the tile at the given coordinates is a wall
+      function isWall(x, y) {
+        if (!isWithinBounds(x, y)) {
+          return false;
+        }
+        return map[y][x] === 1;
+      }
+
+      // Check if the tile at the given coordinates contains a red droid
+      function isRedDroid(x, y) {
+        return redDroids.some(
+          (redDroid) => redDroid.x === x && redDroid.y === y
+        );
+      }
+
+      // Check if the tile at the given coordinates contains the green droid
+      function isGreenDroid(x, y) {
+        return greenDroid && greenDroid.x === x && greenDroid.y === y;
+      }
+
+      // Get a random set of coordinates within the map bounds
+      function getRandomCoordinates() {
+        const x = Math.floor(Math.random() * MAP_SIZE);
+        const y = Math.floor(Math.random() * MAP_SIZE);
+        return [x, y];
+      }
+
+      // Get the valid directions for movement from the given coordinates
+      // within the specified sight range
+      function getValidDirections(x, y, withDiagonals, target) {
+        const directions = [];
+        const startRow = Math.max(0, y - SIGHT_RANGE);
+        const endRow = Math.min(MAP_SIZE - 1, y + SIGHT_RANGE);
+        const startCol = Math.max(0, x - SIGHT_RANGE);
+        const endCol = Math.min(MAP_SIZE - 1, x + SIGHT_RANGE);
+
+        for (let row = startRow; row <= endRow; row++) {
+          for (let col = startCol; col <= endCol; col++) {
+            if (row === y && col === x) {
+              continue;
+            }
+            if (isWithinBounds(col, row) && !isWall(col, row)) {
+              const direction = { x: col, y: row };
+              if (!withDiagonals) {
+                if (row === y || col === x) {
+                  directions.push(direction);
+                }
+              } else {
+                directions.push(direction);
+              }
+            }
+          }
+        }
+
+        if (target) {
+          const validDirections = directions.filter(
+            (dir) =>
+              Math.abs(dir.x - target.x) + Math.abs(dir.y - target.y) === 1
+          );
+          return validDirections;
+        }
+
+        return directions;
+      }
+
+      // Get the direction to move towards the green droid
+      function getGreenDroidDirection() {
+        const greenX = greenDroid.x;
+        const greenY = greenDroid.y;
+
+        const possibleDirections = getValidDirections(this.x, this.y, true, {
+          x: greenX,
+          y: greenY,
+        });
+
+        const distances = possibleDirections.map(
+          (dir) => Math.abs(dir.x - greenX) + Math.abs(dir.y - greenY)
+        );
+        const minDistance = Math.min(...distances);
+        const closestDirections = possibleDirections.filter(
+          (dir, index) => distances[index] === minDistance
+        );
+
+        return closestDirections[
+          Math.floor(Math.random() * closestDirections.length)
+        ];
+      }
+
+      // Update the canvas to reflect the current state of the simulation
+      function updateCanvas() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw walls and tiles
+        for (let row = 0; row < MAP_SIZE; row++) {
+          for (let col = 0; col < MAP_SIZE; col++) {
+            if (isWall(col, row)) {
+              ctx.fillStyle = WALL_COLOR;
+            } else {
+              ctx.fillStyle = TILE_COLOR;
+            }
+            ctx.fillRect(
+              col * TILE_SIZE,
+              row * TILE_SIZE,
+              TILE_SIZE,
+              TILE_SIZE
+            );
+          }
+        }
+
+        // Draw red droids
+        redDroids.forEach((redDroid) => {
+          if (redDroid.isVisible) {
+            ctx.fillStyle = RED_DROID_COLOR;
+            ctx.beginPath();
+            ctx.arc(
+              (redDroid.x + 0.5) * TILE_SIZE,
+              (redDroid.y + 0.5) * TILE_SIZE,
+              DROID_RADIUS,
+              0,
+              Math.PI * 2
+            );
+            ctx.closePath();
+            ctx.fill();
+          }
+        });
+
+        // Draw green droid
+        if (greenDroid) {
+          ctx.fillStyle = GREEN_DROID_COLOR;
+          ctx.beginPath();
+          ctx.arc(
+            (greenDroid.x + 0.5) * TILE_SIZE,
+            (greenDroid.y + 0.5) * TILE_SIZE,
+            DROID_RADIUS,
+            0,
+            Math.PI * 2
+          );
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+
+      // Start the simulation
+      function startSimulation() {
+        updateInterval = setInterval(() => {
+          redDroids.forEach((redDroid) => redDroid.move());
+          greenDroid.move();
+          updateCanvas();
+        }, UPDATE_INTERVAL);
+      }
+
+      // Stop the simulation
+      function stopSimulation() {
+        clearInterval(updateInterval);
+      }
+
+      // Randomize the position of the red droids
+      function randomizeRedDroids() {
+        redDroids.forEach((redDroid) => {
+          let [x, y] = getRandomCoordinates();
+          while (isWall(x, y) || isRedDroid(x, y) || isGreenDroid(x, y)) {
+            [x, y] = getRandomCoordinates();
+          }
+          redDroid.x = x;
+          redDroid.y = y;
+        });
+        updateCanvas();
+      }
+
+      // Add a new red droid to the simulation
+      function addRedDroid() {
+        createRedDroid();
+        updateCanvas();
+      }
+
+      // Event listeners for the buttons
+      document
+        .getElementById("startBtn")
+        .addEventListener("click", startSimulation);
+      document
+        .getElementById("stopBtn")
+        .addEventListener("click", stopSimulation);
+      document
+        .getElementById("randomizeBtn")
+        .addEventListener("click", randomizeRedDroids);
+      document
+        .getElementById("addRedDroidBtn")
+        .addEventListener("click", addRedDroid);
+
+      // Event listener for the radio buttons
+      const redViewRadio = document.getElementById("redView");
+      const greenViewRadio = document.getElementById("greenView");
+      redViewRadio.addEventListener("change", () => {
+        if (redViewRadio.checked) {
+          selectedView = "red";
+        }
+      });
+      greenViewRadio.addEventListener("change", () => {
+        if (greenViewRadio.checked) {
+          selectedView = "green";
+        }
+      });
+
+      // Initialize the simulation
+      init();
+    </script>
+  </body>
+</html>
